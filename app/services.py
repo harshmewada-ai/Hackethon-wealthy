@@ -1023,7 +1023,11 @@ def get_stagnant_sip_opportunities(
     ).outerjoin(
         User, SIPRecord.user_id == User.user_id
     ).filter(
-        SIPRecord.is_active == "true"
+        SIPRecord.is_active == "true",
+        # sheme name should 
+        SIPRecord.scheme_name.isnot(None),
+        SIPRecord.scheme_name != "[]",
+        SIPRecord.scheme_name != ""
     )
     
     # Filter by agent if provided (prefer external_id over internal id)
@@ -1135,7 +1139,10 @@ def get_stopped_sip_opportunities(
                 else_=0
             )
         ).label('active_sips'),
-        sql_func.sum(SIPRecord.success_amount).label('lifetime_success_amount')
+        sql_func.sum(SIPRecord.success_amount).label('lifetime_success_amount'),
+        sql_func.string_agg(SIPRecord.scheme_name, ', ').label('scheme_names'),  
+        sql_func.max(SIPRecord.amount).label('top_scheme_amount') 
+    
     ).filter(
         SIPRecord.deleted == "false"
     ).group_by(
@@ -1152,6 +1159,8 @@ def get_stopped_sip_opportunities(
         user_sip_summary.c.max_success_count,
         user_sip_summary.c.lifetime_success_amount,
         user_sip_summary.c.last_success_date,
+        user_sip_summary.c.scheme_names,
+        user_sip_summary.c.top_scheme_amount,
         User.name.label('user_name'),
         User.agent_name
     ).outerjoin(
@@ -1192,7 +1201,9 @@ def get_stopped_sip_opportunities(
                     lifetime_success_amount=row.lifetime_success_amount,
                     last_success_date=row.last_success_date,
                     days_since_any_success=days_since,
-                    months_since_success=months_since
+                    months_since_success=months_since,
+                    scheme_names=row.scheme_names,
+                    top_scheme_amount=row.top_scheme_amount
                 )
             )
     

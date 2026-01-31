@@ -1,10 +1,11 @@
 from fastapi import FastAPI, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from app.database import get_db
 from app import schemas
 from app import services
+from agent import generate_dashboard_insight
 
 app = FastAPI(
     title="Wealthy Partner Dashboard API",
@@ -60,6 +61,9 @@ def read_root():
                 "sips": "/api/clients/{user_id}/sips",
                 "insurance": "/api/clients/{user_id}/insurance",
                 "portfolio": "/api/clients/{user_id}/portfolio"
+            },
+            "ai_insights": {
+                "dashboard": "/api/ai/dashboard-insights"
             },
             "users": {
                 "all": "/api/users",
@@ -537,6 +541,107 @@ def get_portfolio_review_opportunities(
     - clients: List of clients with their underperforming schemes
     """
     return services.get_portfolio_review_opportunities(db, agent_external_id=agent_external_id)
+
+
+@app.get("/api/ai/dashboard-insights", response_model=Dict[str, Any])
+def get_ai_dashboard_insights(
+    agent_external_id: Optional[str] = Query(None, description="Filter by agent external ID"),
+    agent_id: Optional[str] = Query(None, description="Filter by agent ID"),
+    db: Session = Depends(get_db)
+):
+    """
+    🤖 AI-Powered Dashboard Insights
+    
+    Fetches data from all 4 opportunity APIs and uses Gemini AI to generate:
+    - Total opportunity value calculation
+    - Top 10 focus clients ranked by complexity and value
+    - Executive summary and pitch hooks
+    
+    **Parameters:**
+    - agent_external_id: Filter opportunities by agent external ID
+    - agent_id: Filter opportunities by agent ID (optional)
+    
+    **Returns:**
+    - dashboard_hero: Overall metrics and opportunity breakdown
+    - top_focus_clients: Top 10 clients with detailed drill-down
+    
+    **Data Sources (fetched internally):**
+    1. Portfolio Review Opportunities (underperforming schemes)
+    2. Stagnant SIP Opportunities (no step-up configured)
+    3. Stopped SIP Opportunities (no payments in >2 months)
+    4. Insurance Coverage Gaps (low/no insurance)
+    """
+    try:
+        # Fetch data from all 4 APIs using internal service calls
+        portfolio_data = services.get_portfolio_review_opportunities(
+            db, 
+            agent_external_id=agent_external_id
+        )
+        
+        stagnant_sips_data = services.get_stagnant_sip_opportunities(
+            db,
+            agent_external_id=agent_external_id,
+            agent_id=agent_id,
+            min_months=6
+        )
+        
+        stopped_sips_data = services.get_stopped_sip_opportunities(
+            db,
+            agent_external_id=agent_external_id,
+            min_success_count=3,
+            min_inactive_months=2
+        )
+        
+        insurance_gaps_data = services.get_insurance_gap_opportunities(
+            db,
+            agent_external_id=agent_external_id,
+            min_mf_value=500000
+        )
+        
+        # Call AI agent with fetched data
+        ai_response = generate_dashboard_insight(
+            portfolio_data=portfolio_data,
+            stagnant_data=stagnant_sips_data,
+            stopped_data=stopped_sips_data,
+            insurance_data=insurance_gaps_data
+        )
+        
+        # Add metadata
+        return {
+            **ai_response,
+            "metadata": {
+                "agent_external_id": agent_external_id,
+                "agent_id": agent_id,
+                "data_summary": {
+                    "portfolio_opportunities": len(portfolio_data.get("clients", [])),
+                    "stagnant_sips": len(stagnant_sips_data.get("opportunities", [])),
+                    "stopped_sips": len(stopped_sips_data.get("opportunities", [])),
+                    "insurance_gaps": len(insurance_gaps_data.get("opportunities", []))
+                }
+            }
+        }
+        
+    except Exception as e:
+        # Return error with fallback structure
+        return {
+            "dashboard_hero": {
+                "total_opportunity_value": 0,
+                "formatted_value": "Error",
+                "executive_summary": f"Error generating insights: {str(e)}",
+                "opportunity_breakdown": {
+                    "insurance": "0",
+                    "sip_recovery": "0",
+                    "portfolio_rebalancing": "0"
+                }
+            },
+            "top_focus_clients": [],
+            "error": str(e),
+            "metadata": {
+                "agent_external_id": agent_external_id,
+                "agent_id": agent_id,
+                "status": "error"
+            }
+        }
 
 
 if __name__ == "__main__":

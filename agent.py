@@ -5,11 +5,16 @@ from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
-genai.configure(api_key=os.getenv('AIzaSyA44KTejygzE3PCYhvXEe_2ZUJ0ibd38Hg'))
 
 # --- CONFIGURATION ---
+# Get API key from environment variable (recommended) or hardcode
+GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY', 'your-api-key-here')
+genai.configure(api_key=GOOGLE_API_KEY)
+
+# Create model instance
+# Use model name that works with v1beta API
 model = genai.GenerativeModel(
-    model_name='gemini-1.5-flash',
+    model_name='models/gemini-flash-latest',
     generation_config={"response_mime_type": "application/json"}
 )
 
@@ -103,6 +108,7 @@ def generate_dashboard_insight(portfolio_data, stagnant_data, stopped_data, insu
         {json.dumps(insurance_data, default=str)}
         """
 
+        # Generate content with Gemini
         response = model.generate_content(SYSTEM_PROMPT + input_payload)
         return json.loads(response.text)
 

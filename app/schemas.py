@@ -371,6 +371,8 @@ class StoppedSIPOpportunity(BaseModel):
     last_success_date: Optional[str] = None
     days_since_any_success: Optional[int] = None
     months_since_success: Optional[int] = None
+    scheme_names: Optional[str] = None
+    top_scheme_amount: Optional[float] = None
     
     class Config:
         from_attributes = True
